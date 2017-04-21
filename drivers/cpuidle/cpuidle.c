@@ -202,7 +202,8 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	entered_state = target_state->enter(dev, drv, index);
 	start_critical_timings();
 
-	time_end = ktime_get();
+	sched_clock_idle_wakeup_event();
+	time_end = ns_to_ktime(local_clock());
 	trace_cpu_idle_rcuidle(PWR_EVENT_EXIT, dev->cpu);
 
 	/* The cpu is no longer idle or about to enter idle. */
