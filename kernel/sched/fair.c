@@ -6205,7 +6205,7 @@ schedtune_task_margin(struct task_struct *task)
 	if (boost == 0)
 		return 0;
 
-	util = task_util(task);
+	util = task_util_est(task);
 	margin = schedtune_margin(util, boost);
 
 	return margin;
@@ -6241,7 +6241,7 @@ boosted_cpu_util(int cpu)
 static inline unsigned long
 boosted_task_util(struct task_struct *task)
 {
-	unsigned long util = task_util(task);
+	unsigned long util = task_util_est(task);
 	long margin = schedtune_task_margin(task);
 
 	trace_sched_boost_task(task, util, margin);
@@ -6549,7 +6549,7 @@ static inline int find_best_target(struct task_struct *p, bool boosted, bool pre
 			 * accounting. However, the blocked utilization may be zero.
 			 */
 			wake_util = cpu_util_wake(i, p);
-			new_util = wake_util + task_util(p);
+			new_util = wake_util + task_util_est(p);
 
 			/*
 			 * Ensure minimum capacity to grant the required boost.
@@ -6646,7 +6646,7 @@ static int wake_cap(struct task_struct *p, int cpu, int prev_cpu)
 	/* Bring task utilization in sync with prev_cpu */
 	sync_entity_load_avg(&p->se);
 
-	return min_cap * 1024 < task_util(p) * capacity_margin;
+	return min_cap * 1024 < task_util_est(p) * capacity_margin;
 }
 
 static inline bool
@@ -6706,7 +6706,7 @@ static int select_energy_cpu_brute(struct task_struct *p, int prev_cpu,
 
 	if (target_cpu != prev_cpu) {
 		struct energy_env eenv = {
-			.util_delta     = task_util(p),
+			.util_delta     = task_util_est(p),
 			.src_cpu        = prev_cpu,
 			.dst_cpu        = target_cpu,
 			.task           = p,
