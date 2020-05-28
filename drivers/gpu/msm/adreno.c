@@ -182,15 +182,10 @@ unsigned int adreno_get_rptr(struct adreno_ringbuffer *rb)
 	struct adreno_device *adreno_dev = ADRENO_RB_DEVICE(rb);
 	unsigned int rptr = 0;
 
-	if (adreno_is_a3xx(adreno_dev))
-		adreno_readreg(adreno_dev, ADRENO_REG_CP_RB_RPTR,
-				&rptr);
-	else {
-		struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
+	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 
-		kgsl_sharedmem_readl(&device->scratch, &rptr,
-				SCRATCH_RPTR_OFFSET(rb->id));
-	}
+	kgsl_sharedmem_readl(&device->scratch, &rptr,
+			SCRATCH_RPTR_OFFSET(rb->id));
 
 	return rptr;
 }
@@ -1211,28 +1206,6 @@ static int adreno_init(struct kgsl_device *device)
 		}
 	}
 
-	/*
-	 * Allocate a small chunk of memory for precise drawobj profiling for
-	 * those targets that have the always on timer
-	 */
-
-	if (!adreno_is_a3xx(adreno_dev)) {
-		int r = kgsl_allocate_global(device,
-			&adreno_dev->profile_buffer, PAGE_SIZE,
-			0, 0, "alwayson");
-
-		adreno_dev->profile_index = 0;
-
-		if (r == 0) {
-			set_bit(ADRENO_DEVICE_DRAWOBJ_PROFILE,
-				&adreno_dev->priv);
-			kgsl_sharedmem_set(device,
-				&adreno_dev->profile_buffer, 0, 0,
-				PAGE_SIZE);
-		}
-
-	}
-
 	if (nopreempt == false &&
 		ADRENO_FEATURE(adreno_dev, ADRENO_PREEMPTION)) {
 		int r = 0;
@@ -1273,9 +1246,7 @@ static void _set_secvid(struct kgsl_device *device)
 
 	/* Program GPU contect protection init values */
 	if (device->mmu.secured) {
-		if (adreno_is_a4xx(adreno_dev))
-			adreno_writereg(adreno_dev,
-				ADRENO_REG_RBBM_SECVID_TRUST_CONFIG, 0x2);
+
 		adreno_writereg(adreno_dev,
 				ADRENO_REG_RBBM_SECVID_TSB_CONTROL, 0x0);
 
@@ -1558,15 +1529,12 @@ static int adreno_stop(struct kgsl_device *device)
 
 static inline bool adreno_try_soft_reset(struct kgsl_device *device, int fault)
 {
-	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
-
 	/*
 	 * Do not do soft reset for a IOMMU fault (because the IOMMU hardware
-	 * needs a reset too) or for the A304 because it can't do SMMU
-	 * programming of any kind after a soft reset
+	 * needs a reset too)
 	 */
 
-	if ((fault & ADRENO_IOMMU_PAGE_FAULT) || adreno_is_a304(adreno_dev))
+	if ((fault & ADRENO_IOMMU_PAGE_FAULT))
 		return false;
 
 	return true;
@@ -2636,15 +2604,6 @@ static bool adreno_is_hw_collapsible(struct kgsl_device *device)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct adreno_gpudev *gpudev  = ADRENO_GPU_DEVICE(adreno_dev);
-
-	/*
-	 * Skip power collapse for A304, if power ctrl flag is set to
-	 * non zero. As A304 soft_reset will not work, power collapse
-	 * needs to disable to avoid soft_reset.
-	 */
-	if (adreno_is_a304(adreno_dev) &&
-			device->pwrctrl.ctrl_flags)
-		return false;
 
 	return adreno_isidle(device) && (gpudev->is_sptp_idle ?
 				gpudev->is_sptp_idle(adreno_dev) : true);

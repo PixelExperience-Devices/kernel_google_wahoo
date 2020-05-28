@@ -33,24 +33,16 @@ static unsigned int _wait_reg(struct adreno_device *adreno_dev,
 {
 	unsigned int *start = cmds;
 
-	if (adreno_is_a3xx(adreno_dev)) {
-		*cmds++ = cp_packet(adreno_dev, CP_WAIT_REG_EQ, 4);
-		*cmds++ = addr;
-		*cmds++ = val;
-		*cmds++ = mask;
-		*cmds++ = interval;
-	} else {
-		*cmds++ = cp_mem_packet(adreno_dev, CP_WAIT_REG_MEM, 5, 1);
-		*cmds++ = 0x3; /* Mem Space = Register,  Function = Equals */
-		cmds += cp_gpuaddr(adreno_dev, cmds, addr); /* Poll address */
-		*cmds++ = val; /* ref val */
-		*cmds++ = mask;
-		*cmds++ = interval;
+	*cmds++ = cp_mem_packet(adreno_dev, CP_WAIT_REG_MEM, 5, 1);
+	*cmds++ = 0x3; /* Mem Space = Register,  Function = Equals */
+	cmds += cp_gpuaddr(adreno_dev, cmds, addr); /* Poll address */
+	*cmds++ = val; /* ref val */
+	*cmds++ = mask;
+	*cmds++ = interval;
 
-		/* WAIT_REG_MEM turns back on protected mode - push it off */
-		*cmds++ = cp_packet(adreno_dev, CP_SET_PROTECTED_MODE, 1);
-		*cmds++ = 0;
-	}
+	/* WAIT_REG_MEM turns back on protected mode - push it off */
+	*cmds++ = cp_packet(adreno_dev, CP_SET_PROTECTED_MODE, 1);
+	*cmds++ = 0;
 
 	return cmds - start;
 }
@@ -96,75 +88,6 @@ static unsigned int  _iommu_lock(struct adreno_device *adreno_dev,
 	return cmds - start;
 }
 
-static unsigned int _iommu_unlock(struct adreno_device *adreno_dev,
-				  unsigned int *cmds)
-{
-	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
-	struct kgsl_iommu *iommu = KGSL_IOMMU_PRIV(device);
-	unsigned int *start = cmds;
-
-	BUG_ON(iommu->micro_mmu_ctrl == UINT_MAX);
-
-	/* unlock the IOMMU lock */
-	*cmds++ = cp_packet(adreno_dev, CP_REG_RMW, 3);
-	*cmds++ = iommu->micro_mmu_ctrl >> 2;
-	/* AND to unmask the lock bit */
-	*cmds++ = ~(KGSL_IOMMU_IMPLDEF_MICRO_MMU_CTRL_HALT);
-	/* OR with 0 so lock bit is unset */
-	*cmds++ = 0;
-
-	/* release all commands since _iommu_lock() with wait_for_me */
-	cmds += cp_wait_for_me(adreno_dev, cmds);
-
-	return cmds - start;
-}
-
-static unsigned int _vbif_lock(struct adreno_device *adreno_dev,
-			unsigned int *cmds)
-{
-	unsigned int *start = cmds;
-	/*
-	 * glue commands together until next
-	 * WAIT_FOR_ME
-	 */
-	cmds += _wait_reg(adreno_dev, cmds,
-			adreno_getreg(adreno_dev, ADRENO_REG_CP_WFI_PEND_CTR),
-			1, 0xFFFFFFFF, 0xF);
-
-	/* MMU-500 VBIF stall */
-	*cmds++ = cp_packet(adreno_dev, CP_REG_RMW, 3);
-	*cmds++ = A3XX_VBIF_DDR_OUTPUT_RECOVERABLE_HALT_CTRL0;
-	/* AND to unmask the HALT bit */
-	*cmds++ = ~(VBIF_RECOVERABLE_HALT_CTRL);
-	/* OR to set the HALT bit */
-	*cmds++ = 0x1;
-
-	/* Wait for acknowledgement */
-	cmds += _wait_reg(adreno_dev, cmds,
-			A3XX_VBIF_DDR_OUTPUT_RECOVERABLE_HALT_CTRL1,
-			1, 0xFFFFFFFF, 0xF);
-
-	return cmds - start;
-}
-
-static unsigned int _vbif_unlock(struct adreno_device *adreno_dev,
-				unsigned int *cmds)
-{
-	unsigned int *start = cmds;
-
-	/* MMU-500 VBIF unstall */
-	*cmds++ = cp_packet(adreno_dev, CP_REG_RMW, 3);
-	*cmds++ = A3XX_VBIF_DDR_OUTPUT_RECOVERABLE_HALT_CTRL0;
-	/* AND to unmask the HALT bit */
-	*cmds++ = ~(VBIF_RECOVERABLE_HALT_CTRL);
-	/* OR to reset the HALT bit */
-	*cmds++ = 0;
-
-	/* release all commands since _vbif_lock() with wait_for_me */
-	cmds += cp_wait_for_me(adreno_dev, cmds);
-	return cmds - start;
-}
-
 static unsigned int _cp_smmu_reg(struct adreno_device *adreno_dev,
 				unsigned int *cmds,
 				enum kgsl_iommu_reg_map reg,
@@ -180,12 +103,6 @@ static unsigned int _cp_smmu_reg(struct adreno_device *adreno_dev,
 
 	if (adreno_is_a5xx(adreno_dev) || iommu->version == 1) {
 		*cmds++ = cp_register(adreno_dev, offset, num);
-	} else if (adreno_is_a3xx(adreno_dev)) {
-		*cmds++ = cp_packet(adreno_dev, CP_REG_WR_NO_CTXT, num + 1);
-		*cmds++ = offset;
-	} else if (adreno_is_a4xx(adreno_dev)) {
-		*cmds++ = cp_packet(adreno_dev, CP_WIDE_REG_WRITE, num + 1);
-		*cmds++ = offset;
 	} else  {
 		BUG();
 	}
@@ -227,9 +144,6 @@ static inline int _adreno_iommu_add_idle_cmds(struct adreno_device *adreno_dev,
 
 	cmds += cp_wait_for_idle(adreno_dev, cmds);
 
-	if (adreno_is_a3xx(adreno_dev))
-		cmds += cp_wait_for_me(adreno_dev, cmds);
-
 	return cmds - start;
 }
 
@@ -240,20 +154,9 @@ static inline int _adreno_iommu_add_idle_cmds(struct adreno_device *adreno_dev,
 static void _invalidate_uche_cpu(struct adreno_device *adreno_dev)
 {
 	/* Invalidate UCHE using CPU */
-	if (adreno_is_a5xx(adreno_dev))
+	if (adreno_is_a5xx(adreno_dev)) {
 		adreno_writereg(adreno_dev,
 			ADRENO_REG_UCHE_INVALIDATE0, 0x12);
-	else if (adreno_is_a4xx(adreno_dev)) {
-		adreno_writereg(adreno_dev,
-			ADRENO_REG_UCHE_INVALIDATE0, 0);
-		adreno_writereg(adreno_dev,
-			ADRENO_REG_UCHE_INVALIDATE1, 0x12);
-	} else if (adreno_is_a3xx(adreno_dev)) {
-		adreno_writereg(adreno_dev,
-			ADRENO_REG_UCHE_INVALIDATE0, 0);
-		adreno_writereg(adreno_dev,
-			ADRENO_REG_UCHE_INVALIDATE1,
-			0x90000000);
 	} else {
 		BUG();
 	}
@@ -304,10 +207,6 @@ static unsigned int adreno_iommu_set_apriv(struct adreno_device *adreno_dev,
 				unsigned int *cmds, int set)
 {
 	unsigned int *cmds_orig = cmds;
-
-	/* adreno 3xx doesn't have the CP_CNTL.APRIV field */
-	if (adreno_is_a3xx(adreno_dev))
-		return 0;
 
 	cmds += cp_wait_for_idle(adreno_dev, cmds);
 	cmds += cp_wait_for_me(adreno_dev, cmds);
@@ -456,81 +355,15 @@ static unsigned int _adreno_iommu_set_pt_v1(struct adreno_ringbuffer *rb,
 			KGSL_IOMMU_CTX_CONTEXTIDR, 1);
 	*cmds++ = contextidr;
 
-	/* a3xx doesn't have MEQ space to hold the TLBI commands */
-	if (adreno_is_a3xx(adreno_dev))
-		cmds += _iommu_unlock(adreno_dev, cmds);
-
 	cmds += _tlbiall(adreno_dev, cmds);
 
 	/* unlock or wait for me to finish the TLBI */
-	if (!adreno_is_a3xx(adreno_dev))
-		cmds += _iommu_unlock(adreno_dev, cmds);
-	else
-		cmds += cp_wait_for_me(adreno_dev, cmds);
+	cmds += cp_wait_for_me(adreno_dev, cmds);
 
 	/* Exec count ordinal of CP_COND_EXEC packet */
 	*cond_exec_ptr = (cmds - cond_exec_ptr - 1);
 	cmds += _adreno_iommu_add_idle_cmds(adreno_dev, cmds);
 	cmds += _adreno_iommu_pt_update_pid_to_mem(rb, cmds, ptname);
-
-	return cmds - cmds_orig;
-}
-
-
-static unsigned int _adreno_iommu_set_pt_v2_a3xx(struct kgsl_device *device,
-					unsigned int *cmds_orig,
-					u64 ttbr0, u32 contextidr)
-{
-	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
-	unsigned int *cmds = cmds_orig;
-
-	cmds += _adreno_iommu_add_idle_cmds(adreno_dev, cmds);
-
-	cmds += _vbif_lock(adreno_dev, cmds);
-
-	cmds += _cp_smmu_reg(adreno_dev, cmds, KGSL_IOMMU_CTX_TTBR0, 2);
-	*cmds++ = lower_32_bits(ttbr0);
-	*cmds++ = upper_32_bits(ttbr0);
-	cmds += _cp_smmu_reg(adreno_dev, cmds, KGSL_IOMMU_CTX_CONTEXTIDR, 1);
-	*cmds++ = contextidr;
-
-	cmds += _vbif_unlock(adreno_dev, cmds);
-
-	cmds += _tlbiall(adreno_dev, cmds);
-
-	/* wait for me to finish the TLBI */
-	cmds += cp_wait_for_me(adreno_dev, cmds);
-
-	cmds += _adreno_iommu_add_idle_cmds(adreno_dev, cmds);
-
-	return cmds - cmds_orig;
-}
-
-static unsigned int _adreno_iommu_set_pt_v2_a4xx(struct kgsl_device *device,
-					unsigned int *cmds_orig,
-					u64 ttbr0, u32 contextidr)
-{
-	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
-	unsigned int *cmds = cmds_orig;
-
-	cmds += _adreno_iommu_add_idle_cmds(adreno_dev, cmds);
-
-	cmds += _vbif_lock(adreno_dev, cmds);
-
-	cmds += _cp_smmu_reg(adreno_dev, cmds, KGSL_IOMMU_CTX_TTBR0, 2);
-	*cmds++ = lower_32_bits(ttbr0);
-	*cmds++ = upper_32_bits(ttbr0);
-	cmds += _cp_smmu_reg(adreno_dev, cmds, KGSL_IOMMU_CTX_CONTEXTIDR, 1);
-	*cmds++ = contextidr;
-
-	cmds += _vbif_unlock(adreno_dev, cmds);
-
-	cmds += _tlbiall(adreno_dev, cmds);
-
-	/* wait for me to finish the TLBI */
-	cmds += cp_wait_for_me(adreno_dev, cmds);
-
-	cmds += _adreno_iommu_add_idle_cmds(adreno_dev, cmds);
 
 	return cmds - cmds_orig;
 }
@@ -597,12 +430,6 @@ unsigned int adreno_iommu_set_pt_generate_cmds(
 		if (adreno_is_a5xx(adreno_dev))
 			cmds += _adreno_iommu_set_pt_v2_a5xx(device, cmds,
 						ttbr0, contextidr, rb);
-		else if (adreno_is_a4xx(adreno_dev))
-			cmds += _adreno_iommu_set_pt_v2_a4xx(device, cmds,
-						ttbr0, contextidr);
-		else if (adreno_is_a3xx(adreno_dev))
-			cmds += _adreno_iommu_set_pt_v2_a3xx(device, cmds,
-						ttbr0, contextidr);
 		else
 			BUG(); /* new GPU family? */
 	} else {
@@ -655,18 +482,6 @@ static unsigned int __add_curr_ctxt_cmds(struct adreno_ringbuffer *rb,
 			adreno_getreg(adreno_dev,
 		ADRENO_REG_UCHE_INVALIDATE0), 1);
 		*cmds++ = 0x12;
-	} else if (adreno_is_a4xx(adreno_dev)) {
-		*cmds++ = cp_register(adreno_dev,
-			adreno_getreg(adreno_dev,
-			ADRENO_REG_UCHE_INVALIDATE0), 2);
-		*cmds++ = 0;
-		*cmds++ = 0x12;
-	} else if (adreno_is_a3xx(adreno_dev)) {
-		*cmds++ = cp_register(adreno_dev,
-			adreno_getreg(adreno_dev,
-			ADRENO_REG_UCHE_INVALIDATE0), 2);
-		*cmds++ = 0;
-		*cmds++ = 0x90000000;
 	} else
 		BUG();
 
@@ -808,10 +623,6 @@ int adreno_iommu_init(struct adreno_device *adreno_dev)
 				KGSL_IOMMU_SETSTATE_NOP_OFFSET,
 				cp_packet(adreno_dev, CP_NOP, 1));
 
-	/* set iommu features here */
-	if (adreno_is_a420(adreno_dev))
-		device->mmu.features |= KGSL_MMU_FLUSH_TLB_ON_MAP;
-
 	/*
 	 * A5XX: per process PT is supported starting PFP 0x5FF064 me 0x5FF052
 	 * versions
@@ -827,10 +638,6 @@ int adreno_iommu_init(struct adreno_device *adreno_dev)
 			return -ENODEV;
 		}
 	}
-
-	/* Enable guard page MMU feature for A3xx and A4xx targets only */
-	if (adreno_is_a3xx(adreno_dev) || adreno_is_a4xx(adreno_dev))
-		device->mmu.features |= KGSL_MMU_NEED_GUARD_PAGE;
 
 	return 0;
 }

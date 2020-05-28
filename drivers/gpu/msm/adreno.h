@@ -870,8 +870,6 @@ extern unsigned int *adreno_ft_regs;
 extern unsigned int adreno_ft_regs_num;
 extern unsigned int *adreno_ft_regs_val;
 
-extern struct adreno_gpudev adreno_a3xx_gpudev;
-extern struct adreno_gpudev adreno_a4xx_gpudev;
 extern struct adreno_gpudev adreno_a5xx_gpudev;
 
 extern int adreno_wake_nice;
@@ -941,58 +939,6 @@ void adreno_efuse_unmap(struct adreno_device *adreno_dev);
 static inline int adreno_is_##_name(struct adreno_device *adreno_dev) \
 { \
 	return (ADRENO_GPUREV(adreno_dev) == (_id)); \
-}
-
-static inline int adreno_is_a3xx(struct adreno_device *adreno_dev)
-{
-	return ((ADRENO_GPUREV(adreno_dev) >= 300) &&
-		(ADRENO_GPUREV(adreno_dev) < 400));
-}
-
-ADRENO_TARGET(a304, ADRENO_REV_A304)
-ADRENO_TARGET(a305, ADRENO_REV_A305)
-ADRENO_TARGET(a305b, ADRENO_REV_A305B)
-ADRENO_TARGET(a305c, ADRENO_REV_A305C)
-ADRENO_TARGET(a306, ADRENO_REV_A306)
-ADRENO_TARGET(a306a, ADRENO_REV_A306A)
-ADRENO_TARGET(a310, ADRENO_REV_A310)
-ADRENO_TARGET(a320, ADRENO_REV_A320)
-ADRENO_TARGET(a330, ADRENO_REV_A330)
-
-static inline int adreno_is_a330v2(struct adreno_device *adreno_dev)
-{
-	return ((ADRENO_GPUREV(adreno_dev) == ADRENO_REV_A330) &&
-		(ADRENO_CHIPID_PATCH(adreno_dev->chipid) > 0));
-}
-
-static inline int adreno_is_a330v21(struct adreno_device *adreno_dev)
-{
-	return ((ADRENO_GPUREV(adreno_dev) == ADRENO_REV_A330) &&
-		(ADRENO_CHIPID_PATCH(adreno_dev->chipid) > 0xF));
-}
-
-static inline int adreno_is_a4xx(struct adreno_device *adreno_dev)
-{
-	return ADRENO_GPUREV(adreno_dev) >= 400 &&
-		ADRENO_GPUREV(adreno_dev) < 500;
-}
-
-ADRENO_TARGET(a405, ADRENO_REV_A405);
-
-static inline int adreno_is_a405v2(struct adreno_device *adreno_dev)
-{
-	return (ADRENO_GPUREV(adreno_dev) == ADRENO_REV_A405) &&
-		(ADRENO_CHIPID_PATCH(adreno_dev->chipid) == 0x10);
-}
-
-ADRENO_TARGET(a418, ADRENO_REV_A418)
-ADRENO_TARGET(a420, ADRENO_REV_A420)
-ADRENO_TARGET(a430, ADRENO_REV_A430)
-
-static inline int adreno_is_a430v2(struct adreno_device *adreno_dev)
-{
-	return ((ADRENO_GPUREV(adreno_dev) == ADRENO_REV_A430) &&
-		(ADRENO_CHIPID_PATCH(adreno_dev->chipid) == 1));
 }
 
 static inline int adreno_is_a5xx(struct adreno_device *adreno_dev)
@@ -1282,11 +1228,6 @@ static inline void adreno_set_protected_registers(
 	 * the upper registers are not contiguous with the lower 16
 	 * registers so we have to adjust the base and offset accordingly
 	 */
-
-	if (adreno_is_a4xx(adreno_dev) && *index >= 0x10) {
-		base = A4XX_CP_PROTECT_REG_10;
-		offset = *index - 0x10;
-	}
 
 	val = 0x60000000 | ((mask_len & 0x1F) << 24) | ((reg << 2) & 0xFFFFF);
 

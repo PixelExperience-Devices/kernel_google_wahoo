@@ -846,8 +846,7 @@ static uint64_t _perfcounter_read_pwr(struct adreno_device *adreno_dev,
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	struct adreno_perfcount_register *reg;
-	unsigned int in = 0, out, lo = 0, hi = 0;
-	unsigned int enable_bit;
+	unsigned int lo = 0, hi = 0;
 
 	reg = &group->regs[counter];
 
@@ -855,26 +854,10 @@ static uint64_t _perfcounter_read_pwr(struct adreno_device *adreno_dev,
 	if (adreno_is_a5xx(adreno_dev) && (counter == 0))
 		return -EINVAL;
 
-	if (adreno_is_a3xx(adreno_dev)) {
-		/* On A3XX we need to freeze the counter so we can read it */
-		if (0 == counter)
-			enable_bit = 0x00010000;
-		else
-			enable_bit = 0x00020000;
-
-		/* freeze counter */
-		adreno_readreg(adreno_dev, ADRENO_REG_RBBM_RBBM_CTL, &in);
-		out = (in & ~enable_bit);
-		adreno_writereg(adreno_dev, ADRENO_REG_RBBM_RBBM_CTL, out);
-	}
-
 	kgsl_regread(device, reg->offset, &lo);
 	kgsl_regread(device, reg->offset_hi, &hi);
 
 	/* restore the counter control value */
-	if (adreno_is_a3xx(adreno_dev))
-		adreno_writereg(adreno_dev, ADRENO_REG_RBBM_RBBM_CTL, in);
-
 	return REG_64BIT_VAL(hi, lo, reg->value);
 }
 
@@ -887,18 +870,8 @@ static uint64_t _perfcounter_read_vbif(struct adreno_device *adreno_dev,
 
 	reg = &group->regs[counter];
 
-	/* freeze counter */
-	if (adreno_is_a3xx(adreno_dev))
-		kgsl_regwrite(device, reg->select - VBIF2_PERF_EN_REG_SEL_OFF,
-							0);
-
 	kgsl_regread(device, reg->offset, &lo);
 	kgsl_regread(device, reg->offset_hi, &hi);
-
-	/* un-freeze counter */
-	if (adreno_is_a3xx(adreno_dev))
-		kgsl_regwrite(device, reg->select - VBIF2_PERF_EN_REG_SEL_OFF,
-							1);
 
 	return REG_64BIT_VAL(hi, lo, reg->value);
 }
@@ -912,16 +885,8 @@ static uint64_t _perfcounter_read_vbif_pwr(struct adreno_device *adreno_dev,
 
 	reg = &group->regs[counter];
 
-	/* freeze counter */
-	if (adreno_is_a3xx(adreno_dev))
-		kgsl_regwrite(device, reg->select, 0);
-
 	kgsl_regread(device, reg->offset, &lo);
 	kgsl_regread(device, reg->offset_hi, &hi);
-
-	/* un-freeze counter */
-	if (adreno_is_a3xx(adreno_dev))
-		kgsl_regwrite(device, reg->select, 1);
 
 	return REG_64BIT_VAL(hi, lo, reg->value);
 }
@@ -950,24 +915,12 @@ static uint64_t _perfcounter_read_default(struct adreno_device *adreno_dev,
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	struct adreno_perfcount_register *reg;
 	unsigned int lo = 0, hi = 0;
-	unsigned int in = 0, out;
 
 	reg = &group->regs[counter];
-
-	/* Freeze the counter */
-	if (adreno_is_a3xx(adreno_dev)) {
-		adreno_readreg(adreno_dev, ADRENO_REG_RBBM_PERFCTR_CTL, &in);
-		out = in & ~RBBM_PERFCTR_CTL_ENABLE;
-		adreno_writereg(adreno_dev, ADRENO_REG_RBBM_PERFCTR_CTL, out);
-	}
 
 	/* Read the values */
 	kgsl_regread(device, reg->offset, &lo);
 	kgsl_regread(device, reg->offset_hi, &hi);
-
-	/* Re-Enable the counter */
-	if (adreno_is_a3xx(adreno_dev))
-		adreno_writereg(adreno_dev, ADRENO_REG_RBBM_PERFCTR_CTL, in);
 
 	return REG_64BIT_VAL(hi, lo, 0);
 }

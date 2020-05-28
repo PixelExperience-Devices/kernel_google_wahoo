@@ -312,12 +312,8 @@ static void _retire_timestamp(struct kgsl_drawobj *drawobj)
 	 * rptr scratch out address. At this point GPU clocks turned off.
 	 * So avoid reading GPU register directly for A3xx.
 	 */
-	if (adreno_is_a3xx(ADRENO_DEVICE(device)))
-		trace_adreno_cmdbatch_retired(drawobj, -1, 0, 0, drawctxt->rb,
-				0, 0);
-	else
-		trace_adreno_cmdbatch_retired(drawobj, -1, 0, 0, drawctxt->rb,
-			adreno_get_rptr(drawctxt->rb), 0);
+	trace_adreno_cmdbatch_retired(drawobj, -1, 0, 0, drawctxt->rb,
+		adreno_get_rptr(drawctxt->rb), 0);
 	kgsl_drawobj_destroy(drawobj);
 }
 
@@ -1163,10 +1159,6 @@ static inline int _verify_cmdobj(struct kgsl_device_private *dev_priv,
 			device->flags &= ~KGSL_FLAG_WAKE_ON_TOUCH;
 		}
 
-		/* A3XX does not have support for drawobj profiling */
-		if (adreno_is_a3xx(ADRENO_DEVICE(device)) &&
-			(drawobj[i]->flags & KGSL_DRAWOBJ_PROFILING))
-			return -EOPNOTSUPP;
 	}
 
 	return 0;
@@ -2280,15 +2272,10 @@ static void retire_cmdobj(struct adreno_device *adreno_dev,
 	 * rptr scratch out address. At this point GPU clocks turned off.
 	 * So avoid reading GPU register directly for A3xx.
 	 */
-	if (adreno_is_a3xx(adreno_dev))
-		trace_adreno_cmdbatch_retired(drawobj,
-			(int) dispatcher->inflight, start, end,
-			ADRENO_DRAWOBJ_RB(drawobj), 0, cmdobj->fault_recovery);
-	else
-		trace_adreno_cmdbatch_retired(drawobj,
-			(int) dispatcher->inflight, start, end,
-			ADRENO_DRAWOBJ_RB(drawobj),
-			adreno_get_rptr(drawctxt->rb), cmdobj->fault_recovery);
+	trace_adreno_cmdbatch_retired(drawobj,
+		(int) dispatcher->inflight, start, end,
+		ADRENO_DRAWOBJ_RB(drawobj),
+		adreno_get_rptr(drawctxt->rb), cmdobj->fault_recovery);
 
 	drawctxt->submit_retire_ticks[drawctxt->ticks_index] =
 		end - cmdobj->submit_ticks;

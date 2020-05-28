@@ -76,18 +76,7 @@ static void adreno_get_submit_time(struct adreno_device *adreno_dev,
 	local_irq_save(flags);
 
 	/* Read always on registers */
-	if (!adreno_is_a3xx(adreno_dev)) {
-		adreno_readreg64(adreno_dev,
-			ADRENO_REG_RBBM_ALWAYSON_COUNTER_LO,
-			ADRENO_REG_RBBM_ALWAYSON_COUNTER_HI,
-			&time->ticks);
-
-		/* Mask hi bits as they may be incorrect on some targets */
-		if (ADRENO_GPUREV(adreno_dev) >= 400 &&
-				ADRENO_GPUREV(adreno_dev) <= ADRENO_REV_A530)
-			time->ticks &= 0xFFFFFFFF;
-	} else
-		time->ticks = 0;
+	time->ticks = 0;
 
 	/* Trace the GPU time to create a mapping to ftrace time */
 	trace_adreno_cmdbatch_sync(rb->drawctxt_active, time->ticks);
@@ -329,39 +318,12 @@ int cp_secure_mode(struct adreno_device *adreno_dev, uint *cmds,
 {
 	uint *start = cmds;
 
-	if (adreno_is_a4xx(adreno_dev)) {
-		cmds += cp_wait_for_idle(adreno_dev, cmds);
-		/*
-		 * The two commands will stall the PFP until the PFP-ME-AHB
-		 * is drained and the GPU is idle. As soon as this happens,
-		 * the PFP will start moving again.
-		 */
-		cmds += cp_wait_for_me(adreno_dev, cmds);
-
-		/*
-		 * Below commands are processed by ME. GPU will be
-		 * idle when they are processed. But the PFP will continue
-		 * to fetch instructions at the same time.
-		 */
-		*cmds++ = cp_packet(adreno_dev, CP_SET_PROTECTED_MODE, 1);
-		*cmds++ = 0;
-		*cmds++ = cp_packet(adreno_dev, CP_WIDE_REG_WRITE, 2);
-		*cmds++ = adreno_getreg(adreno_dev,
-				ADRENO_REG_RBBM_SECVID_TRUST_CONTROL);
-		*cmds++ = set;
-		*cmds++ = cp_packet(adreno_dev, CP_SET_PROTECTED_MODE, 1);
-		*cmds++ = 1;
-
-		/* Stall PFP until all above commands are complete */
-		cmds += cp_wait_for_me(adreno_dev, cmds);
-	} else {
-		/*
-		 * A5xx has a separate opcode specifically to put the GPU
-		 * in and out of secure mode.
-		 */
-		*cmds++ = cp_packet(adreno_dev, CP_SET_SECURE_MODE, 1);
-		*cmds++ = set;
-	}
+	/*
+	 * A5xx has a separate opcode specifically to put the GPU
+	 * in and out of secure mode.
+	 */
+	*cmds++ = cp_packet(adreno_dev, CP_SET_SECURE_MODE, 1);
+	*cmds++ = set;
 
 	return cmds - start;
 }
@@ -452,14 +414,6 @@ adreno_ringbuffer_addcmds(struct adreno_ringbuffer *rb,
 
 	/* _seq mem write for each submission */
 	total_sizedwords += 4;
-
-	/* context rollover */
-	if (adreno_is_a3xx(adreno_dev))
-		total_sizedwords += 3;
-
-	/* For HLSQ updates below */
-	if (adreno_is_a4xx(adreno_dev) || adreno_is_a3xx(adreno_dev))
-		total_sizedwords += 4;
 
 	if (gpudev->preemption_pre_ibsubmit &&
 				adreno_is_preemption_enabled(adreno_dev))
@@ -571,16 +525,6 @@ adreno_ringbuffer_addcmds(struct adreno_ringbuffer *rb,
 		*ringcmds++ = 1;
 	}
 
-	/*
-	 * Flush HLSQ lazy updates to make sure there are no
-	 * resources pending for indirect loads after the timestamp
-	 */
-	if (adreno_is_a4xx(adreno_dev) || adreno_is_a3xx(adreno_dev)) {
-		*ringcmds++ = cp_packet(adreno_dev, CP_EVENT_WRITE, 1);
-		*ringcmds++ = 0x07; /* HLSQ_FLUSH */
-		ringcmds += cp_wait_for_idle(adreno_dev, ringcmds);
-	}
-
 	/* Add any postIB required for profiling if it is enabled and has
 	   assigned counters */
 	if (profile_ready)
@@ -628,14 +572,6 @@ adreno_ringbuffer_addcmds(struct adreno_ringbuffer *rb,
 		ringcmds += cp_gpuaddr(adreno_dev, ringcmds,
 			MEMSTORE_RB_GPU_ADDR(device, rb, eoptimestamp));
 		*ringcmds++ = timestamp;
-	}
-
-	if (adreno_is_a3xx(adreno_dev)) {
-		/* Dummy set-constant to trigger context rollover */
-		*ringcmds++ = cp_packet(adreno_dev, CP_SET_CONSTANT, 2);
-		*ringcmds++ =
-			(0x4<<16) | (A3XX_HLSQ_CL_KERNEL_GROUP_X_REG - 0x2000);
-		*ringcmds++ = 0;
 	}
 
 	if (flags & KGSL_CMD_FLAGS_WFI) {
@@ -848,8 +784,7 @@ int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 	/* Each IB takes up 30 dwords in worst case */
 	dwords += (numibs * 30);
 
-	if (drawobj->flags & KGSL_DRAWOBJ_PROFILING &&
-		!adreno_is_a3xx(adreno_dev) && profile_buffer) {
+	if (drawobj->flags & KGSL_DRAWOBJ_PROFILING && profile_buffer) {
 		user_profiling = true;
 
 		/*
