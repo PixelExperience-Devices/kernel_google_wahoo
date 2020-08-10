@@ -3437,16 +3437,6 @@ static inline unsigned long cfs_rq_load_avg(struct cfs_rq *cfs_rq)
 
 static int idle_balance(struct rq *this_rq);
 
-static inline unsigned long task_util(struct task_struct *p)
-{
-#ifdef CONFIG_SCHED_WALT
-	if (likely(!walt_disabled && sysctl_sched_use_walt_task_util))
-		return (p->ravg.demand /
-			(walt_ravg_window >> SCHED_CAPACITY_SHIFT));
-#endif
-	return READ_ONCE(p->se.avg.util_avg);
-}
-
 static inline unsigned long _task_util_est(struct task_struct *p)
 {
 	struct util_est ue = READ_ONCE(p->se.avg.util_est);
@@ -5610,9 +5600,10 @@ struct energy_env {
 
 /*
  * __cpu_norm_util() returns the cpu util relative to a specific capacity,
- * i.e. it's busy ratio, in the range [0..SCHED_LOAD_SCALE] which is useful for
- * energy calculations. Using the scale-invariant util returned by
- * cpu_util() and approximating scale-invariant util by:
+ * i.e. it's busy ratio, in the range [0..SCHED_LOAD_SCALE], which is useful for
+ * energy calculations.
+ *
+ * Since util is a scale-invariant utilization defined as:
  *
  *   util ~ (curr_freq/max_freq)*1024 * capacity_orig/1024 * running_time/time
  *
@@ -5622,10 +5613,8 @@ struct energy_env {
  *
  *   norm_util = running_time/time ~ util/capacity
  */
-static unsigned long __cpu_norm_util(int cpu, unsigned long capacity, int delta)
+static unsigned long __cpu_norm_util(unsigned long util, unsigned long capacity)
 {
-	int util = __cpu_util(cpu, delta);
-
 	if (util >= capacity)
 		return SCHED_CAPACITY_SCALE;
 
@@ -5830,7 +5819,7 @@ unsigned long group_max_util(struct energy_env *eenv)
 
 	for_each_cpu(i, sched_group_cpus(eenv->sg_cap)) {
 		delta = calc_util_delta(eenv, i);
-		max_util = max(max_util, __cpu_util(i, delta));
+		max_util = max(max_util, cpu_util(i));
 	}
 
 	return max_util;
@@ -5854,7 +5843,7 @@ long group_norm_util(struct energy_env *eenv, struct sched_group *sg)
 
 	for_each_cpu(i, sched_group_cpus(sg)) {
 		delta = calc_util_delta(eenv, i);
-		util_sum += __cpu_norm_util(i, capacity, delta);
+		util_sum += __cpu_norm_util(i, capacity);
 	}
 
 	if (util_sum > SCHED_CAPACITY_SCALE)
