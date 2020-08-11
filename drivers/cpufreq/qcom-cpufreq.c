@@ -63,7 +63,6 @@ static int set_cpu_freq(struct cpufreq_policy *policy, unsigned int new_freq,
 	if (!ret) {
 		arch_set_freq_scale(policy->related_cpus, new_freq,
 				    policy->cpuinfo.max_freq);
-		trace_cpu_frequency_switch_end(policy->cpu);
 	}
 
 	return ret;
