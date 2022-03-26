@@ -37,6 +37,13 @@
 	};
 	fstab {
 		compatible = "android,fstab";
+                system {
+                        compatible = "android,system";
+                        dev = "system";
+                        type = "ext4";
+                        mnt_flags = "ro";
+                        fsmgr_flags = "wait,slotselect,avb,logical";
+                };
 		vendor {
 			compatible = "android,vendor";
 			dev = "vendor";
